@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador de Vuelo Espacial VR</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            background: #000;
+        }
+        
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #00ff00;
+            background: rgba(0, 20, 0, 0.8);
+            padding: 15px;
+            border: 2px solid #00ff00;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 100;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
+        }
+        
+        #hud h3 {
+            margin: 0 0 10px 0;
+            color: #00ffff;
+            text-shadow: 0 0 10px #00ffff;
+        }
+        
+        #hud .stat {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+        }
+        
+        #hud .label {
+            color: #00ff00;
+        }
+        
+        #hud .value {
+            color: #ffff00;
+            font-weight: bold;
+            margin-left: 20px;
+        }
+        
+        #mission {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: #ffaa00;
+            background: rgba(40, 20, 0, 0.8);
+            padding: 15px;
+            border: 2px solid #ffaa00;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 100;
+            max-width: 300px;
+            box-shadow: 0 0 20px rgba(255, 170, 0, 0.5);
+        }
+        
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: #00ccff;
+            background: rgba(0, 20, 40, 0.8);
+            padding: 15px;
+            border: 2px solid #00ccff;
+            border-radius: 5px;
+            font-size: 12px;
+            z-index: 100;
+        }
+        
+        #vr-button {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 15px 30px;
+            background: linear-gradient(45deg, #1976d2, #00bcd4);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 100;
+            box-shadow: 0 0 20px rgba(25, 118, 210, 0.7);
+            transition: all 0.3s;
+        }
+        
+        #vr-button:hover {
+            background: linear-gradient(45deg, #1565c0, #0097a7);
+            box-shadow: 0 0 30px rgba(25, 118, 210, 1);
+        }
+    </style>
+</head>
+<body>
+    <div id="hud">
+        <h3>◈ SISTEMA DE NAVEGACIÓN ◈</h3>
+        <div class="stat">
+            <span class="label">VELOCIDAD:</span>
+            <span class="value" id="speed">0</span>
+        </div>
+        <div class="stat">
+            <span class="label">ALTITUD:</span>
+            <span class="value" id="altitude">0</span>
+        </div>
+        <div class="stat">
+            <span class="label">COMBUSTIBLE:</span>
+            <span class="value" id="fuel">100%</span>
+        </div>
+        <div class="stat">
+            <span class="label">OXÍGENO:</span>
+            <span class="value" id="oxygen">100%</span>
+        </div>
+        <div class="stat">
+            <span class="label">ESCUDO:</span>
+            <span class="value" id="shield">100%</span>
+        </div>
+        <div class="stat">
+            <span class="label">ENEMIGOS:</span>
+            <span class="value" id="enemies">0</span>
+        </div>
+        <div class="stat">
+            <span class="label">PUNTUACIÓN:</span>
+            <span class="value" id="score">0</span>
+        </div>
+    </div>
+    
+    <div id="mission">
+        <h3>⦿ MISIÓN ACTUAL ⦿</h3>
+        <p id="mission-text">🚨 ¡INVASIÓN ALIENÍGENA! Defiende el sistema solar de las naves enemigas.</p>
+        <p id="objective">Objetivo: Destruir todas las naves invasoras</p>
+    </div>
+    
+    <div id="controls">
+        <strong>🎮 CONTROLES DESKTOP:</strong><br>
+        W/S: Acelerar/Frenar<br>
+        A/D: Rotar izq/der<br>
+        Q/E: Rotar arriba/abajo<br>
+        Espacio: Turbo<br>
+        Click/Enter: Disparar<br>
+        Mouse: Mirar alrededor<br><br>
+        <strong>🥽 CONTROLES VR:</strong><br>
+        Trigger derecho: Acelerar + Disparar<br>
+        Trigger izquierdo: Frenar<br>
+        Grip: Turbo<br>
+        Joystick: Dirección
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+
+        // ==================== CONFIGURACIÓN ====================
+        let scene, camera, renderer;
+        let spaceship, cockpitGroup;
+        let controller1, controller2;
+        let controllerGrip1, controllerGrip2;
+        let shootSound, ambientSound, listener;
+
+        
+        // Variables de vuelo
+        let velocity = new THREE.Vector3();
+        let acceleration = 0;
+        let rotationSpeed = { x: 0, y: 0, z: 0 };
+        const maxSpeed = 50;
+        const maxAcceleration = 0.5;
+        const friction = 0.98;
+        
+        // Stats
+        let fuel = 100;
+        let oxygen = 100;
+        let shield = 100;
+        let score = 0;
+        let enemiesDestroyed = 0;
+        
+        // Objetos espaciales
+        const planets = [];
+        const stars = [];
+        const asteroids = [];
+        const enemies = [];
+        const projectiles = [];
+        const explosions = [];
+        
+        // Controles
+        const keys = {};
+        let turboActive = false;
+        let canShoot = true;
+        // ================= GAMEPAD ===================
+let gamepadIndex = null;
+
+window.addEventListener("gamepadconnected", (e) => {
+    console.log("🎮 Gamepad conectado:", e.gamepad);
+    gamepadIndex = e.gamepad.index;
+});
+
+window.addEventListener("gamepaddisconnected", () => {
+    console.log("Gamepad desconectado");
+    gamepadIndex = null;
+});
+
+// Lee el estado del control en cada frame
+function readGamepad() {
+    if (gamepadIndex === null) return null;
+
+    const gp = navigator.getGamepads()[gamepadIndex];
+    if (!gp) return null;
+
+    return {
+        lx: gp.axes[0],   // Stick izquierdo X
+        ly: gp.axes[1],   // Stick izquierdo Y
+        rx: gp.axes[2],   // Stick derecho X
+        ry: gp.axes[3],   // Stick derecho Y
+        rt: gp.buttons[7].value, // Gatillo derecho
+        lt: gp.buttons[6].value, // Gatillo izquierdo
+        a: gp.buttons[0].pressed,
+        b: gp.buttons[1].pressed
+    };
+}
+
+        let shootCooldown = 0.2; // segundos
+        let lastShootTime = 0;
+        
+        init();
+        animate();
+
+        function init() {
+            // Escena
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x000000, 0.00025);
+
+            // Cámara (dentro de la nave)
+            camera = new THREE.PerspectiveCamera(
+                75,
+                window.innerWidth / window.innerHeight,
+                0.1,
+                10000
+            );
+// ==================== SISTEMA DE AUDIO ====================
+listener = new THREE.AudioListener();
+camera.add(listener);
+
+const audioLoader = new THREE.AudioLoader();
+
+// Crear audios usando variables globales
+shootSound = new THREE.Audio(listener); 
+ambientSound = new THREE.Audio(listener);
+
+// Cargar sonidos
+audioLoader.load('gamevr3/sounds/shoot.mp3', (buffer) => {
+    shootSound.setBuffer(buffer);
+    shootSound.setVolume(0.8);
+});
+
+audioLoader.load('gamevr3/sounds/battle_ambient.mp3', (buffer) => {
+    ambientSound.setBuffer(buffer);
+    ambientSound.setLoop(true);
+    ambientSound.setVolume(0.5);
+});
+
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.xr.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // VR Button
+            document.body.appendChild(VRButton.createButton(renderer));
+
+            // Crear nave espacial
+            createSpaceship();
+            
+            // Crear cockpit
+            createCockpit();
+            
+            // Crear sistema solar
+            createSolarSystem();
+            
+            // Crear campo de estrellas
+            createStarField();
+            
+            // Crear cinturón de asteroides
+            createAsteroidBelt();
+            
+            // Crear invasores
+            spawnEnemies();
+            
+            // Luces
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.3);
+            scene.add(ambientLight);
+            
+            // Setup VR
+            setupVRControllers();
+            
+            // Event listeners
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('keydown', onKeyDown);
+            window.addEventListener('keyup', onKeyUp);
+            window.addEventListener('click', () => shoot());
+        }
+
+        function createSpaceship() {
+            spaceship = new THREE.Group();
+            
+            // Cuerpo principal
+            const bodyGeometry = new THREE.CylinderGeometry(0.5, 0.8, 3, 8);
+            const bodyMaterial = new THREE.MeshStandardMaterial({
+                color: 0xcccccc,
+                metalness: 0.9,
+                roughness: 0.2,
+                emissive: 0x333333
+            });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.rotation.x = Math.PI / 2;
+            spaceship.add(body);
+            
+            // Cabina (transparente)
+            const cabinGeometry = new THREE.SphereGeometry(0.6, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+            const cabinMaterial = new THREE.MeshPhysicalMaterial({
+                color: 0x88ccff,
+                metalness: 0.1,
+                roughness: 0.1,
+                transparent: true,
+                opacity: 0.3,
+                transmission: 0.9
+            });
+            const cabin = new THREE.Mesh(cabinGeometry, cabinMaterial);
+            cabin.position.z = 1;
+            spaceship.add(cabin);
+            
+            // Alas
+            const wingGeometry = new THREE.BoxGeometry(4, 0.1, 1);
+            const wingMaterial = new THREE.MeshStandardMaterial({
+                color: 0x999999,
+                metalness: 0.8,
+                roughness: 0.3
+            });
+            const wings = new THREE.Mesh(wingGeometry, wingMaterial);
+            wings.position.z = -0.5;
+            spaceship.add(wings);
+            
+            // Motores
+            const engineGeometry = new THREE.CylinderGeometry(0.2, 0.3, 1, 8);
+            const engineMaterial = new THREE.MeshStandardMaterial({
+                color: 0x444444,
+                metalness: 0.9,
+                roughness: 0.2,
+                emissive: 0xff4400,
+                emissiveIntensity: 0.5
+            });
+            
+            const engine1 = new THREE.Mesh(engineGeometry, engineMaterial);
+            engine1.rotation.x = Math.PI / 2;
+            engine1.position.set(-1.5, 0, -1.5);
+            spaceship.add(engine1);
+            
+            const engine2 = new THREE.Mesh(engineGeometry, engineMaterial);
+            engine2.rotation.x = Math.PI / 2;
+            engine2.position.set(1.5, 0, -1.5);
+            spaceship.add(engine2);
+            
+            // Luces de navegación
+            const navLight1 = new THREE.PointLight(0x00ff00, 1, 10);
+            navLight1.position.set(-2, 0, 0);
+            spaceship.add(navLight1);
+            
+            const navLight2 = new THREE.PointLight(0xff0000, 1, 10);
+            navLight2.position.set(2, 0, 0);
+            spaceship.add(navLight2);
+            
+            spaceship.position.set(0, 0, 0);
+            scene.add(spaceship);
+            
+            // Añadir cámara a la nave
+            spaceship.add(camera);
+            camera.position.set(0, 0.5, 1.5);
+        }
+
+        function createCockpit() {
+            cockpitGroup = new THREE.Group();
+            
+            // Panel de control
+            const panelGeometry = new THREE.BoxGeometry(1.5, 0.6, 0.05);
+            const panelMaterial = new THREE.MeshStandardMaterial({
+                color: 0x222222,
+                metalness: 0.8,
+                roughness: 0.4
+            });
+            const panel = new THREE.Mesh(panelGeometry, panelMaterial);
+            panel.position.set(0, -0.3, 0.5);
+            panel.rotation.x = -0.3;
+            cockpitGroup.add(panel);
+            
+            // Botones y displays
+            for (let i = 0; i < 8; i++) {
+                const buttonGeometry = new THREE.CylinderGeometry(0.03, 0.03, 0.02, 8);
+                const buttonMaterial = new THREE.MeshStandardMaterial({
+                    color: Math.random() > 0.5 ? 0xff0000 : 0x00ff00,
+                    emissive: Math.random() > 0.5 ? 0xff0000 : 0x00ff00,
+                    emissiveIntensity: 0.5
+                });
+                const button = new THREE.Mesh(buttonGeometry, buttonMaterial);
+                button.position.set(-0.6 + i * 0.18, -0.25, 0.53);
+                button.rotation.x = Math.PI / 2;
+                cockpitGroup.add(button);
+            }
+            
+            // Display holográfico
+            const displayGeometry = new THREE.PlaneGeometry(0.4, 0.3);
+            const displayMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ffff,
+                transparent: true,
+                opacity: 0.3,
+                side: THREE.DoubleSide
+            });
+            const display = new THREE.Mesh(displayGeometry, displayMaterial);
+            display.position.set(0, -0.1, 0.52);
+            display.rotation.x = -0.3;
+            cockpitGroup.add(display);
+            
+            spaceship.add(cockpitGroup);
+        }
+
+        function createSolarSystem() {
+            // Sol
+            const sunGeometry = new THREE.SphereGeometry(50, 32, 32);
+            const sunMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffff00,
+                emissive: 0xffff00,
+                emissiveIntensity: 1
+            });
+            const sun = new THREE.Mesh(sunGeometry, sunMaterial);
+            sun.position.set(500, 0, -1000);
+            scene.add(sun);
+            
+            // Luz del sol
+            const sunLight = new THREE.PointLight(0xffffff, 2, 5000);
+            sunLight.position.copy(sun.position);
+            scene.add(sunLight);
+            
+            // Planetas
+            const planetData = [
+                { name: 'Mercurio', size: 5, color: 0x8c7853, distance: 800, speed: 0.04 },
+                { name: 'Venus', size: 12, color: 0xffc649, distance: 1100, speed: 0.03 },
+                { name: 'Tierra', size: 13, color: 0x4169e1, distance: 1500, speed: 0.02 },
+                { name: 'Marte', size: 7, color: 0xcd5c5c, distance: 2000, speed: 0.015 },
+                { name: 'Júpiter', size: 35, color: 0xc88b3a, distance: 3000, speed: 0.01 },
+                { name: 'Saturno', size: 30, color: 0xfad5a5, distance: 4000, speed: 0.008 }
+            ];
+            
+            planetData.forEach(data => {
+                const planetGeometry = new THREE.SphereGeometry(data.size, 32, 32);
+                const planetMaterial = new THREE.MeshStandardMaterial({
+                    color: data.color,
+                    roughness: 0.7,
+                    metalness: 0.2
+                });
+                const planet = new THREE.Mesh(planetGeometry, planetMaterial);
+                
+                const angle = Math.random() * Math.PI * 2;
+                planet.position.set(
+                    Math.cos(angle) * data.distance,
+                    (Math.random() - 0.5) * 100,
+                    Math.sin(angle) * data.distance
+                );
+                
+                planet.userData = {
+                    name: data.name,
+                    orbitDistance: data.distance,
+                    orbitSpeed: data.speed,
+                    angle: angle
+                };
+                
+                scene.add(planet);
+                planets.push(planet);
+            });
+            
+            // Luna (orbita la Tierra)
+            const moonGeometry = new THREE.SphereGeometry(3, 16, 16);
+            const moonMaterial = new THREE.MeshStandardMaterial({
+                color: 0xaaaaaa,
+                roughness: 0.9
+            });
+            const moon = new THREE.Mesh(moonGeometry, moonMaterial);
+            moon.position.set(1520, 0, 0);
+            moon.userData = { name: 'Luna', orbitSpeed: 0.05, angle: 0 };
+            scene.add(moon);
+            planets.push(moon);
+        }
+
+        function createStarField() {
+            const starGeometry = new THREE.BufferGeometry();
+            const starMaterial = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.7,
+                sizeAttenuation: true
+            });
+            
+            const starVertices = [];
+            for (let i = 0; i < 10000; i++) {
+                const x = (Math.random() - 0.5) * 10000;
+                const y = (Math.random() - 0.5) * 10000;
+                const z = (Math.random() - 0.5) * 10000;
+                starVertices.push(x, y, z);
+            }
+            
+            starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+            const starField = new THREE.Points(starGeometry, starMaterial);
+            scene.add(starField);
+        }
+
+        function createAsteroidBelt() {
+            const asteroidGeometry = new THREE.IcosahedronGeometry(1, 0);
+            
+            for (let i = 0; i < 200; i++) {
+                const size = Math.random() * 3 + 1;
+                const material = new THREE.MeshStandardMaterial({
+                    color: 0x666666,
+                    roughness: 0.9,
+                    metalness: 0.1
+                });
+                
+                const asteroid = new THREE.Mesh(asteroidGeometry, material);
+                asteroid.scale.setScalar(size);
+                
+                const distance = 2500 + Math.random() * 500;
+                const angle = Math.random() * Math.PI * 2;
+                asteroid.position.set(
+                    Math.cos(angle) * distance,
+                    (Math.random() - 0.5) * 200,
+                    Math.sin(angle) * distance
+                );
+                
+                asteroid.userData = {
+                    rotationSpeed: {
+                        x: (Math.random() - 0.5) * 0.02,
+                        y: (Math.random() - 0.5) * 0.02,
+                        z: (Math.random() - 0.5) * 0.02
+                    }
+                };
+                
+                scene.add(asteroid);
+                asteroids.push(asteroid);
+            }
+        }
+
+        function setupVRControllers() {
+            const controllerModelFactory = new XRControllerModelFactory();
+            
+            controller1 = renderer.xr.getController(0);
+            controller1.addEventListener('selectstart', () => {
+                acceleration = maxAcceleration;
+                shoot();
+            });
+            controller1.addEventListener('selectend', () => acceleration = 0);
+            scene.add(controller1);
+            
+            controllerGrip1 = renderer.xr.getControllerGrip(0);
+            controllerGrip1.add(controllerModelFactory.createControllerModel(controllerGrip1));
+            scene.add(controllerGrip1);
+            
+            controller2 = renderer.xr.getController(1);
+            controller2.addEventListener('selectstart', () => acceleration = -maxAcceleration * 0.5);
+            controller2.addEventListener('selectend', () => acceleration = 0);
+            scene.add(controller2);
+            
+            controllerGrip2 = renderer.xr.getControllerGrip(1);
+            controllerGrip2.add(controllerModelFactory.createControllerModel(controllerGrip2));
+            scene.add(controllerGrip2);
+        }
+
+        function onKeyDown(e) {
+            keys[e.key.toLowerCase()] = true;
+            
+            if (e.key === ' ') {
+                turboActive = true;
+            }
+            
+            if (e.key === 'Enter' || e.key === ' ') {
+                shoot();
+            }
+        }
+
+        function onKeyUp(e) {
+            keys[e.key.toLowerCase()] = false;
+            
+            if (e.key === ' ') {
+                turboActive = false;
+            }
+        }
+
+        // ==================== SISTEMA DE ENEMIGOS ====================
+        function spawnEnemies() {
+            const enemyCount = 15;
+            
+            for (let i = 0; i < enemyCount; i++) {
+                setTimeout(() => {
+                    createEnemy();
+                }, i * 2000); // Spawn cada 2 segundos
+            }
+        }
+
+        function createEnemy() {
+            const enemyGroup = new THREE.Group();
+            
+            // Cuerpo principal - forma alienígena
+            const bodyGeometry = new THREE.OctahedronGeometry(1.5, 0);
+            const bodyMaterial = new THREE.MeshStandardMaterial({
+                color: 0xff0000,
+                metalness: 0.8,
+                roughness: 0.2,
+                emissive: 0xff0000,
+                emissiveIntensity: 0.5
+            });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            enemyGroup.add(body);
+            
+            // Alas/antenas alienígenas
+            const wingGeometry = new THREE.ConeGeometry(0.5, 2, 4);
+            const wingMaterial = new THREE.MeshStandardMaterial({
+                color: 0xaa0000,
+                metalness: 0.7,
+                roughness: 0.3
+            });
+            
+            const wing1 = new THREE.Mesh(wingGeometry, wingMaterial);
+            wing1.rotation.z = Math.PI / 2;
+            wing1.position.x = -2;
+            enemyGroup.add(wing1);
+            
+            const wing2 = new THREE.Mesh(wingGeometry, wingMaterial);
+            wing2.rotation.z = -Math.PI / 2;
+            wing2.position.x = 2;
+            enemyGroup.add(wing2);
+            
+            // Luz enemiga
+            const enemyLight = new THREE.PointLight(0xff0000, 2, 20);
+            enemyGroup.add(enemyLight);
+            
+            // Posición aleatoria alrededor del jugador
+            const distance = 100 + Math.random() * 200;
+            const angle = Math.random() * Math.PI * 2;
+            const height = (Math.random() - 0.5) * 100;
+            
+            enemyGroup.position.set(
+                spaceship.position.x + Math.cos(angle) * distance,
+                spaceship.position.y + height,
+                spaceship.position.z + Math.sin(angle) * distance
+            );
+            
+            // Datos del enemigo
+            enemyGroup.userData = {
+                health: 3,
+                speed: 5 + Math.random() * 5,
+                rotationSpeed: 0.02,
+                shootCooldown: 2 + Math.random() * 2,
+                lastShot: 0,
+                isEnemy: true
+            };
+            
+            scene.add(enemyGroup);
+            enemies.push(enemyGroup);
+        }
+
+        function updateEnemies(delta) {
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                
+                // Rotar enemigo
+                enemy.rotation.y += enemy.userData.rotationSpeed;
+                enemy.rotation.x += enemy.userData.rotationSpeed * 0.5;
+                
+                // Perseguir al jugador
+                const direction = new THREE.Vector3();
+                direction.subVectors(spaceship.position, enemy.position);
+                direction.normalize();
+                
+                enemy.position.add(direction.multiplyScalar(enemy.userData.speed * delta));
+                
+                // Enemigo dispara
+                enemy.userData.lastShot += delta;
+                if (enemy.userData.lastShot >= enemy.userData.shootCooldown) {
+                    enemyShoot(enemy);
+                    enemy.userData.lastShot = 0;
+                }
+                
+                // Verificar si está muy cerca (colisión)
+                const distance = enemy.position.distanceTo(spaceship.position);
+                if (distance < 5) {
+                    damagePlayer(20);
+                    createExplosion(enemy.position);
+                    scene.remove(enemy);
+                    enemies.splice(i, 1);
+                }
+            }
+            
+            // Spawn más enemigos si quedan pocos
+            if (enemies.length < 5) {
+                if (Math.random() < 0.01) { // 1% de probabilidad por frame
+                    createEnemy();
+                }
+            }
+        }
+
+        function enemyShoot(enemy) {
+            const projectileGeometry = new THREE.SphereGeometry(0.3, 8, 8);
+            const projectileMaterial = new THREE.MeshBasicMaterial({
+                color: 0xff0000,
+                emissive: 0xff0000,
+                emissiveIntensity: 1
+            });
+            const projectile = new THREE.Mesh(projectileGeometry, projectileMaterial);
+            
+            projectile.position.copy(enemy.position);
+            
+            const direction = new THREE.Vector3();
+            direction.subVectors(spaceship.position, enemy.position);
+            direction.normalize();
+            
+            projectile.userData = {
+                velocity: direction.multiplyScalar(30),
+                lifetime: 3,
+                isEnemyProjectile: true
+            };
+            
+            scene.add(projectile);
+            projectiles.push(projectile);
+        }
+
+        // ==================== SISTEMA DE DISPARO ====================
+        function shoot() {
+
+// 🔊 Sonido del disparo
+if (shootSound.isPlaying) shootSound.stop();
+shootSound.play();
+
+
+
+            const currentTime = performance.now() / 1000;
+            if (currentTime - lastShootTime < shootCooldown) return;
+            
+            lastShootTime = currentTime;
+
+
+
+            
+            // Crear proyectil
+            const projectileGeometry = new THREE.SphereGeometry(0.2, 8, 8);
+            const projectileMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ffff,
+                emissive: 0x00ffff,
+                emissiveIntensity: 1
+            });
+            const projectile = new THREE.Mesh(projectileGeometry, projectileMaterial);
+            
+            // Posición inicial (frente de la nave)
+            const spawnOffset = new THREE.Vector3(0, 0, -3);
+            spawnOffset.applyQuaternion(spaceship.quaternion);
+            projectile.position.copy(spaceship.position).add(spawnOffset);
+            
+            // Velocidad del proyectil
+            const direction = new THREE.Vector3(0, 0, -1);
+            direction.applyQuaternion(spaceship.quaternion);
+            
+            projectile.userData = {
+                velocity: direction.multiplyScalar(50),
+                lifetime: 2,
+                isPlayerProjectile: true
+            };
+            
+            scene.add(projectile);
+            projectiles.push(projectile);
+            
+            // Efecto de sonido visual (flash)
+            const flash = new THREE.PointLight(0x00ffff, 5, 10);
+            flash.position.copy(projectile.position);
+            scene.add(flash);
+            setTimeout(() => scene.remove(flash), 50);
+        }
+
+        function updateProjectiles(delta) {
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const proj = projectiles[i];
+                
+                // Mover proyectil
+                proj.position.add(proj.userData.velocity.clone().multiplyScalar(delta));
+                
+                // Reducir lifetime
+                proj.userData.lifetime -= delta;
+                
+                // Eliminar si expiró
+                if (proj.userData.lifetime <= 0) {
+                    scene.remove(proj);
+                    projectiles.splice(i, 1);
+                    continue;
+                }
+                
+                // Colisiones con enemigos (proyectiles del jugador)
+                if (proj.userData.isPlayerProjectile) {
+                    for (let j = enemies.length - 1; j >= 0; j--) {
+                        const enemy = enemies[j];
+                        const distance = proj.position.distanceTo(enemy.position);
+                        
+                        if (distance < 3) {
+                            // Dañar enemigo
+                            enemy.userData.health--;
+                            
+                            // Eliminar proyectil
+                            scene.remove(proj);
+                            projectiles.splice(i, 1);
+                            
+                            // Si enemigo murió
+                            if (enemy.userData.health <= 0) {
+                                createExplosion(enemy.position);
+                                scene.remove(enemy);
+                                enemies.splice(j, 1);
+                                score += 100;
+                                enemiesDestroyed++;
+                            }
+                            
+                            break;
+                        }
+                    }
+                }
+                
+                // Colisiones con jugador (proyectiles enemigos)
+                if (proj.userData.isEnemyProjectile) {
+                    const distance = proj.position.distanceTo(spaceship.position);
+                    if (distance < 3) {
+                        damagePlayer(10);
+                        scene.remove(proj);
+                        projectiles.splice(i, 1);
+                    }
+                }
+            }
+        }
+
+        // ==================== SISTEMA DE EXPLOSIONES ====================
+        function createExplosion(position) {
+            // Partículas de explosión
+            const particleCount = 20;
+            const particles = [];
+            
+            for (let i = 0; i < particleCount; i++) {
+                const particleGeometry = new THREE.SphereGeometry(0.2, 4, 4);
+                const particleMaterial = new THREE.MeshBasicMaterial({
+                    color: Math.random() > 0.5 ? 0xff6600 : 0xffff00,
+                    emissive: 0xff6600,
+                    emissiveIntensity: 1
+                });
+                const particle = new THREE.Mesh(particleGeometry, particleMaterial);
+                
+                particle.position.copy(position);
+                
+                const velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 20,
+                    (Math.random() - 0.5) * 20,
+                    (Math.random() - 0.5) * 20
+                );
+                
+                particle.userData = {
+                    velocity: velocity,
+                    lifetime: 0.5
+                };
+                
+                scene.add(particle);
+                particles.push(particle);
+            }
+            
+            explosions.push(...particles);
+            
+            // Luz de explosión
+            const explosionLight = new THREE.PointLight(0xff6600, 10, 50);
+            explosionLight.position.copy(position);
+            scene.add(explosionLight);
+            setTimeout(() => scene.remove(explosionLight), 100);
+        }
+
+        function updateExplosions(delta) {
+            for (let i = explosions.length - 1; i >= 0; i--) {
+                const particle = explosions[i];
+                
+                particle.position.add(particle.userData.velocity.clone().multiplyScalar(delta));
+                particle.userData.lifetime -= delta;
+                
+                // Fade out
+                particle.material.opacity = particle.userData.lifetime * 2;
+                particle.material.transparent = true;
+                
+                if (particle.userData.lifetime <= 0) {
+                    scene.remove(particle);
+                    explosions.splice(i, 1);
+                }
+            }
+        }
+
+        function damagePlayer(amount) {
+            shield -= amount;
+            if (shield < 0) {
+                shield = 0;
+                // Game Over logic aquí
+                console.log('¡GAME OVER!');
+            }
+            
+            // Efecto visual de daño
+            scene.background = new THREE.Color(0x330000);
+            setTimeout(() => {
+                scene.background = new THREE.Color(0x000000);
+            }, 100);
+        }
+
+        function updateFlight(delta) {
+            // Aceleración/frenado
+            if (keys['w']) acceleration = maxAcceleration;
+            // Leer gamepad
+const gp = readGamepad();
+
+// -------- ACELERACIÓN / FRENADO CON GAMEPAD --------
+if (gp) {
+    acceleration = 0;
+
+    // Stick hacia arriba = acelerar
+    if (gp.ly < -0.2) {
+        acceleration = maxAcceleration * (-gp.ly); // valor positivo
+    }
+
+    // Stick hacia abajo = frenar
+    if (gp.ly > 0.2) {
+        acceleration = -maxAcceleration * (gp.ly) * 0.7; // freno
+    }
+
+    // Gatillo derecho acelera
+    if (gp.rt > 0.1) {
+        acceleration = maxAcceleration * gp.rt;
+    }
+
+    // Gatillo izquierdo frena
+    if (gp.lt > 0.1) {
+        acceleration = -maxAcceleration * gp.lt;
+    }
+}
+
+// -------- ROTACIÓN (Stick izquierdo/derecho) --------
+if (gp) {
+    // Rotar izquierda/derecha
+    rotationSpeed.y = -gp.lx * 2;
+
+    // Rotar arriba/abajo
+    rotationSpeed.x = gp.rx * 2;
+}
+
+// -------- TURBO --------
+if (gp && gp.b) turboActive = true;
+else if (!keys[' ']) turboActive = false;
+
+// -------- DISPARO con gatillo derecho --------
+if (gp && gp.rt > 0.3) shoot();
+
+            else if (keys['s']) acceleration = -maxAcceleration * 0.5;
+            else acceleration = 0;
+            
+            // Turbo
+            const turboMultiplier = turboActive ? 2 : 1;
+            
+            // Actualizar velocidad
+            velocity.z -= acceleration * turboMultiplier * delta * 60;
+            velocity.multiplyScalar(friction);
+            
+            // Limitar velocidad
+            const speed = velocity.length();
+            if (speed > maxSpeed * turboMultiplier) {
+                velocity.normalize().multiplyScalar(maxSpeed * turboMultiplier);
+            }
+            
+            // Rotación
+            if (keys['a']) rotationSpeed.y = 1;
+            else if (keys['d']) rotationSpeed.y = -1;
+            else rotationSpeed.y *= 0.9;
+            
+            if (keys['q']) rotationSpeed.x = 1;
+            else if (keys['e']) rotationSpeed.x = -1;
+            else rotationSpeed.x *= 0.9;
+            
+            // Aplicar rotación
+            spaceship.rotation.y += rotationSpeed.y * delta;
+            spaceship.rotation.x += rotationSpeed.x * delta;
+            
+            // Aplicar movimiento
+            const moveVector = new THREE.Vector3(0, 0, velocity.z * delta);
+            moveVector.applyQuaternion(spaceship.quaternion);
+            spaceship.position.add(moveVector);
+            
+            // Consumir recursos
+            if (speed > 1) {
+                fuel -= delta * 0.1 * (turboActive ? 2 : 1);
+                fuel = Math.max(0, fuel);
+            }
+            
+            oxygen -= delta * 0.05;
+            oxygen = Math.max(0, oxygen);
+            
+            // Regenerar escudo
+            if (shield < 100) {
+                shield += delta * 0.5;
+                shield = Math.min(100, shield);
+            }
+        }
+
+        function updatePlanets(delta) {
+            planets.forEach(planet => {
+                if (planet.userData.orbitDistance) {
+                    planet.userData.angle += planet.userData.orbitSpeed * delta;
+                    planet.position.x = Math.cos(planet.userData.angle) * planet.userData.orbitDistance;
+                    planet.position.z = Math.sin(planet.userData.angle) * planet.userData.orbitDistance;
+                }
+                planet.rotation.y += delta * 0.1;
+            });
+        }
+
+        function updateAsteroids(delta) {
+            asteroids.forEach(asteroid => {
+                asteroid.rotation.x += asteroid.userData.rotationSpeed.x;
+                asteroid.rotation.y += asteroid.userData.rotationSpeed.y;
+                asteroid.rotation.z += asteroid.userData.rotationSpeed.z;
+            });
+        }
+
+        function updateHUD() {
+            document.getElementById('speed').textContent = velocity.length().toFixed(1) + ' km/s';
+            document.getElementById('altitude').textContent = spaceship.position.y.toFixed(0) + ' km';
+            document.getElementById('fuel').textContent = fuel.toFixed(1) + '%';
+            document.getElementById('oxygen').textContent = oxygen.toFixed(1) + '%';
+            document.getElementById('shield').textContent = shield.toFixed(1) + '%';
+            document.getElementById('enemies').textContent = enemies.length;
+            document.getElementById('score').textContent = score;
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        const clock = new THREE.Clock();
+
+        function animate() {
+            renderer.setAnimationLoop(render);
+        }
+
+        function render() {
+            const delta = clock.getDelta();
+            readGamepad(); // actualizar cada frame
+
+            
+            updateFlight(delta);
+            updatePlanets(delta);
+            updateAsteroids(delta);
+            updateEnemies(delta);
+            updateProjectiles(delta);
+            updateExplosions(delta);
+            updateHUD();
+            
+            renderer.render(scene, camera);
+        }
+    </script>
+    <button id="unlockAudioButton" style="
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 20px;
+    font-size: 22px;
+    background: black;
+    color: white;
+    border: 2px solid white;
+    border-radius: 10px;
+    z-index: 99999;">
+    🔊 ACTIVAR SONIDO
+</button>
+
+</body>
+</html>
